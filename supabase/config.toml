@@ -1,0 +1,10 @@
+project_id = "YOUR_SUPABASE_PROJECT_REF"
+
+[functions.create-checkout]
+verify_jwt = false
+
+[functions.capture-paypal]
+verify_jwt = false
+
+[functions.payment-webhook]
+verify_jwt = false
