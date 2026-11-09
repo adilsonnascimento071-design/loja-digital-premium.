@@ -1,17 +1,17 @@
 # Loja Digital Premium
 
-Loja demonstrativa de produtos digitais, em USD, construída com HTML, CSS e JavaScript puro.
+Loja responsiva de produtos digitais, com catálogo em USD, carrinho e checkout demonstrativo.
 
-## Funcionalidades
-- Catálogo responsivo com pesquisa e categorias
-- Página de produto em modal
-- Carrinho com quantidades, remoção e subtotal
-- Checkout com dados do comprador
-- Confirmação de pedido demonstrativa
-- Persistência local do carrinho
+## Estrutura
+- `index.html` — loja pública.
+- `admin.html` — painel administrativo com autenticação Supabase, gestão básica de produtos e consulta de encomendas.
+- `config.js` — configuração pública do cliente Supabase (substituir os placeholders).
+- `supabase/schema.sql` — tabelas, políticas RLS, perfis e bucket privado.
+- `supabase/functions/create-checkout/index.ts` — endpoint seguro de checkout em modo bloqueado até configurar um provedor.
+- `DEPLOYMENT.md` — instruções de configuração e publicação.
 
-## Executar
-Abra `index.html` num navegador ou publique a raiz do repositório no GitHub Pages.
+## Publicar
+Consulta [DEPLOYMENT.md](./DEPLOYMENT.md) para configurar GitHub Pages e Supabase.
 
-## Pagamentos
-O checkout atual regista uma encomenda demonstrativa no navegador. Para cobrar de verdade, configure um provedor (por exemplo Stripe ou PayPal) num backend seguro. Nunca coloque chaves secretas no JavaScript do navegador.
+## Estado dos pagamentos
+O checkout atual da loja continua demonstrativo. A base de dados e a estrutura segura para o backend estão preparadas, mas pagamentos reais, confirmação por webhook e entrega automática só podem ser ativados depois de escolher e configurar um provedor. Não coloques chaves secretas no frontend.
