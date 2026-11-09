@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Painel administrativo — Forma Digital</title>
+<style>
+:root{font-family:Inter,system-ui,sans-serif;color:#171923;background:#f6f7fb;--purple:#6758e8;--line:#e8e9f0;--muted:#727789}
+*{box-sizing:border-box}body{margin:0}.shell{max-width:1120px;margin:auto;padding:28px 20px}.top{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:25px}.brand{font-size:21px;font-weight:850}.brand span{color:var(--purple)}button,input,select{font:inherit}button{cursor:pointer;border:0;border-radius:10px;padding:11px 15px;font-weight:700}.primary{background:var(--purple);color:white}.plain{background:white;border:1px solid var(--line)}.card{background:white;border:1px solid var(--line);border-radius:16px;padding:22px;margin:15px 0}.muted{color:var(--muted)}.hidden{display:none!important}.login{max-width:420px;margin:9vh auto}.field{display:grid;gap:6px;margin:13px 0}.field input,.field select{padding:12px;border:1px solid var(--line);border-radius:9px;width:100%}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.stat strong{display:block;font-size:26px;margin-top:8px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.tabs button.active{background:#eeecff;color:var(--purple)}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:12px 9px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:12px}.tablewrap{overflow:auto}.status{padding:5px 8px;border-radius:20px;background:#fff4dc;font-size:12px}.error{color:#b42318}.success{color:#16865b}.row{display:flex;gap:10px;flex-wrap:wrap}.row .field{flex:1;min-width:180px}@media(max-width:650px){.stats{grid-template-columns:1fr}.shell{padding:18px 12px}.card{padding:16px}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+</head>
+<body><main class="shell">
+<div class="top"><div class="brand">forma<span>.</span>digital <small class="muted">/ Admin</small></div><button id="logout" class="plain hidden">Terminar sessão</button></div>
+<section id="login" class="card login"><h1>Entrar no painel</h1><p class="muted">Acesso reservado à equipa administrativa.</p><form id="loginForm"><div class="field"><label>Email</label><input id="email" type="email" required autocomplete="username"></div><div class="field"><label>Palavra-passe</label><input id="password" type="password" required autocomplete="current-password"></div><button class="primary" type="submit">Entrar</button></form><p id="loginMsg" class="muted"></p></section>
+<section id="app" class="hidden"><div class="stats"><div class="card stat"><span class="muted">Encomendas</span><strong id="ordersCount">—</strong></div><div class="card stat"><span class="muted">Receita confirmada</span><strong id="revenue">$0.00</strong></div><div class="card stat"><span class="muted">Produtos ativos</span><strong id="productsCount">—</strong></div></div>
+<div class="tabs"><button class="plain active" data-tab="orders">Encomendas</button><button class="plain" data-tab="products">Produtos</button></div>
+<div id="ordersPanel" class="card"><h2>Encomendas recentes</h2><p class="muted">Os pagamentos só devem ser marcados como pagos após confirmação no provedor/webhook.</p><div class="tablewrap"><table><thead><tr><th>Data</th><th>Cliente</th><th>Total</th><th>Estado</th></tr></thead><tbody id="ordersRows"><tr><td colspan="4">A carregar…</td></tr></tbody></table></div></div>
+<div id="productsPanel" class="card hidden"><h2>Adicionar produto</h2><form id="productForm"><div class="row"><div class="field"><label>Nome</label><input name="name" required></div><div class="field"><label>Slug (identificador URL)</label><input name="slug" required pattern="[a-z0-9-]+"></div></div><div class="row"><div class="field"><label>Categoria</label><input name="category" value="Geral"></div><div class="field"><label>Preço (USD)</label><input name="price_usd" type="number" min="0" step="0.01" required></div></div><div class="field"><label>Descrição</label><input name="description"></div><div class="row"><div class="field"><label>URL da capa</label><input name="cover_url" type="url"></div><div class="field"><label>Caminho do ficheiro privado</label><input name="file_path" placeholder="ex.: ebooks/guia.pdf"></div></div><button class="primary">Guardar produto</button></form><p id="productMsg" class="muted"></p><h3>Produtos cadastrados</h3><div class="tablewrap"><table><thead><tr><th>Produto</th><th>Preço</th><th>Estado</th><th>Ação</th></tr></thead><tbody id="productsRows"></tbody></table></div></div></section>
+</main>
+<script>
+const cfg=window.STORE_CONFIG||{};
+const configured=cfg.SUPABASE_URL&&!cfg.SUPABASE_URL.includes("YOUR_PROJECT")&&cfg.SUPABASE_ANON_KEY&&!cfg.SUPABASE_ANON_KEY.includes("YOUR_");
+const $=id=>document.getElementById(id);let sb=null;
+if(configured&&window.supabase) sb=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
+function money(n){return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n||0))}
+function msg(el,s,cls='muted'){el.textContent=s;el.className=cls}
+async function boot(){
+ if(!sb){msg($('loginMsg'),'Configura primeiro o ficheiro config.js com os dados públicos do Supabase.','error');return}
+ const {data:{session}}=await sb.auth.getSession();
+ if(session) await showApp(session.user);
+}
+async function showApp(user){
+ const {data:profile,error}=await sb.from('profiles').select('role').eq('id',user.id).single();
+ if(error||profile?.role!=='admin'){await sb.auth.signOut();msg($('loginMsg'),'Esta conta não tem permissões de administrador.','error');return}
+ $('login').classList.add('hidden');$('app').classList.remove('hidden');$('logout').classList.remove('hidden');await refresh();
+}
+async function refresh(){
+ const [o,p]=await Promise.all([sb.from('orders').select('*').order('created_at',{ascending:false}).limit(100),sb.from('products').select('*').order('created_at',{ascending:false})]);
+ if(o.error||p.error){console.error(o.error||p.error);return}
+ $('ordersCount').textContent=o.data.length;$('revenue').textContent=money(o.data.filter(x=>x.status==='paid').reduce((s,x)=>s+Number(x.subtotal_usd),0));$('productsCount').textContent=p.data.filter(x=>x.is_active).length;
+ $('ordersRows').innerHTML=o.data.map(x=>'<tr><td>'+new Date(x.created_at).toLocaleDateString('pt-PT')+'</td><td>'+escapeHtml(x.customer_name)+'<br><small>'+escapeHtml(x.customer_email)+'</small></td><td>'+money(x.subtotal_usd)+'</td><td><span class="status">'+escapeHtml(x.status)+'</span></td></tr>').join('')||'<tr><td colspan="4">Ainda não existem encomendas.</td></tr>';
+ $('productsRows').innerHTML=p.data.map(x=>'<tr><td>'+escapeHtml(x.name)+'</td><td>'+money(x.price_usd)+'</td><td>'+(x.is_active?'Ativo':'Oculto')+'</td><td><button class="plain" data-toggle="'+x.id+'" data-active="'+x.is_active+'">'+(x.is_active?'Ocultar':'Ativar')+'</button></td></tr>').join('')||'<tr><td colspan="4">Sem produtos.</td></tr>';
+}
+function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+$('loginForm').addEventListener('submit',async e=>{e.preventDefault();if(!sb)return;msg($('loginMsg'),'A validar…');const {data,error}=await sb.auth.signInWithPassword({email:$('email').value,password:$('password').value});if(error){msg($('loginMsg'),error.message,'error');return}await showApp(data.user)});
+$('logout').addEventListener('click',async()=>{await sb.auth.signOut();location.reload()});
+document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));$('ordersPanel').classList.toggle('hidden',b.dataset.tab!=='orders');$('productsPanel').classList.toggle('hidden',b.dataset.tab!=='products')}));
+$('productForm').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);const payload=Object.fromEntries(f.entries());payload.price_usd=Number(payload.price_usd);const {error}=await sb.from('products').insert(payload);if(error){msg($('productMsg'),error.message,'error');return}e.target.reset();msg($('productMsg'),'Produto criado.','success');await refresh()});
+$('productsRows').addEventListener('click',async e=>{const b=e.target.closest('[data-toggle]');if(!b)return;const {error}=await sb.from('products').update({is_active:b.dataset.active!=='true'}).eq('id',b.dataset.toggle);if(error)alert(error.message);else await refresh()});
+boot();
+</script></body></html>
