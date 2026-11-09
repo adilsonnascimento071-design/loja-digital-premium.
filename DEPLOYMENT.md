@@ -1,46 +1,48 @@
 # Configuração e publicação — Loja Digital Premium
 
-A loja pública atual está em `index.html`. O painel de administração está em `admin.html`.
+## Supabase
+1. Cria um projeto em https://supabase.com/ e executa `supabase/schema.sql` no SQL Editor.
+2. Coloca Project URL e chave publishable/anon em `config.js`. Nunca publiques a chave service_role.
+3. Cria a tua conta e promove-a a administrador:
+   `update public.profiles set role='admin' where id=(select id from auth.users where email='TEU_EMAIL');`
+4. Adiciona o domínio da loja em Authentication → URL Configuration.
 
-## 1. Publicar a loja
-1. No GitHub, abre o repositório e entra em **Settings → Pages**.
-2. Em **Build and deployment**, escolhe **Deploy from a branch**.
-3. Seleciona `main` e a pasta `/(root)`; guarda.
-4. O endereço será apresentado pelo GitHub Pages quando a publicação terminar.
+## Pagamentos Stripe e PayPal
+O código contém checkout Stripe Checkout, PayPal Orders, captura PayPal e webhook com validação de assinatura. O servidor calcula os preços a partir do Supabase; o navegador não determina os valores cobrados.
 
-## 2. Criar o backend Supabase
-1. Cria um projeto em https://supabase.com/.
-2. Abre **SQL Editor** e executa todo o conteúdo de `supabase/schema.sql`.
-3. Em **Project Settings → API**, copia Project URL e a chave publishable/anon.
-4. Coloca esses dois valores em `config.js`. São valores públicos; nunca uses a chave `service_role` no browser.
-5. Em **Authentication → URL Configuration**, adiciona o domínio publicado à lista de URLs permitidos.
-6. Cria a tua conta em **Authentication → Users**.
-7. No SQL Editor, promove apenas a tua conta a administrador:
-   `update public.profiles set role = 'admin' where id = (select id from auth.users where email = 'TEU_EMAIL');`
-8. Abre `/admin.html`, inicia sessão e adiciona produtos.
+**Atenção se a empresa estiver registada em Angola:** a lista oficial do Stripe não inclui Angola. A documentação PayPal classifica Angola como “Send only” para integrações de vendedores. Não declares país, morada ou empresa falsos. Usa estes adaptadores apenas se tiveres entidade comercial real, documentação fiscal/bancária e aprovação do provedor numa jurisdição elegível.
 
-## 3. Ficheiros digitais
-- Usa o bucket privado `digital-products` criado pelo SQL.
-- Faz upload dos ficheiros pelo painel Storage do Supabase.
-- Guarda o caminho do ficheiro no campo `file_path` do produto.
-- Não tornes o bucket público e não coloques links permanentes de download no catálogo.
-- A entrega automática exige uma função backend que confirme o pagamento e emita links assinados de curta duração.
+Configura como Supabase Edge Function Secrets:
+- `APP_ORIGIN` — URL HTTPS da loja
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` — segredo apenas no servidor
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_MERCHANT_COUNTRY_ELIGIBLE` — manter false até elegibilidade comprovada
+- `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`
+- `PAYPAL_ENV` — sandbox ou live
+- `PAYPAL_MERCHANT_COUNTRY_ELIGIBLE` — manter false até autorização para receber pagamentos
 
-## 4. Pagamentos reais — ainda pendente de escolha
-O endpoint `supabase/functions/create-checkout` é um bloqueio seguro: não inventa pagamentos nem marca encomendas como pagas. O adaptador do provedor e o webhook só devem ser implementados depois de escolher o método de pagamento e confirmar a disponibilidade da conta comercial no país de operação.
+## Webhooks
+Ambos usam:
+`https://TEU_PROJECT_REF.supabase.co/functions/v1/payment-webhook`
 
-Nunca guardes chaves secretas no `index.html`, `config.js` ou noutro ficheiro público do GitHub. Guarda-as em **Supabase → Edge Functions → Secrets**.
+Stripe: subscreve `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`; guarda o signing secret em `STRIPE_WEBHOOK_SECRET`.
 
-## 5. Checklist antes de vender
-- [ ] Configurar URL e chave pública do Supabase em `config.js`
-- [ ] Executar `supabase/schema.sql`
-- [ ] Criar conta e atribuir papel de administrador
-- [ ] Cadastrar produtos reais, preços e capas
-- [ ] Carregar os ficheiros para o bucket privado
-- [ ] Escolher e configurar o provedor de pagamento
-- [ ] Implementar e testar webhook de confirmação
-- [ ] Implementar entrega segura após pagamento
-- [ ] Testar compra, falha, reembolso e acesso ao download
-- [ ] Publicar termos, política de privacidade e política de reembolso
+PayPal: subscreve `PAYMENT.CAPTURE.COMPLETED` e `PAYMENT.CAPTURE.DENIED`; guarda o Webhook ID em `PAYPAL_WEBHOOK_ID`.
 
-**Estado atual:** catálogo e checkout demonstrativo; backend e painel administrativo preparados para configuração; cobrança e entrega automática ainda não ativadas.
+## Deploy
+```bash
+supabase login
+supabase link --project-ref TEU_PROJECT_REF
+supabase secrets set APP_ORIGIN=https://TEU_DOMINIO SUPABASE_URL=https://TEU_PROJECT_REF.supabase.co SUPABASE_SERVICE_ROLE_KEY=TEU_SERVICE_ROLE_KEY
+supabase functions deploy create-checkout
+supabase functions deploy capture-paypal
+supabase functions deploy payment-webhook
+```
+Define os restantes secrets no painel ou com `supabase secrets set`.
+
+## Entrega digital
+Os webhooks atualizam o estado para paid apenas depois da confirmação do provedor. A entrega automática por email ainda depende de configurar um serviço transacional, como Resend, e implementar links assinados de curta duração no bucket privado. Não está ativada.
+
+## Testes
+Testa primeiro em Sandbox/Test: sucesso, cancelamento, recusa, webhook repetido e alteração fraudulenta de preço. Só ativa Live após aprovação comercial, fiscal e bancária.
