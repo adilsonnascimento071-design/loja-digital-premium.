@@ -1,17 +1,19 @@
 # Loja Digital Premium
 
-Loja responsiva de produtos digitais, com catálogo em USD, carrinho e checkout demonstrativo.
+Loja responsiva de produtos digitais em USD, com catálogo, pesquisa, carrinho, checkout e painel administrativo.
 
 ## Estrutura
-- `index.html` — loja pública.
-- `admin.html` — painel administrativo com autenticação Supabase, gestão básica de produtos e consulta de encomendas.
-- `config.js` — configuração pública do cliente Supabase (substituir os placeholders).
-- `supabase/schema.sql` — tabelas, políticas RLS, perfis e bucket privado.
-- `supabase/functions/create-checkout/index.ts` — endpoint seguro de checkout em modo bloqueado até configurar um provedor.
-- `DEPLOYMENT.md` — instruções de configuração e publicação.
+- `index.html` — loja pública ligada ao catálogo Supabase e checkout Stripe/PayPal.
+- `admin.html` — painel administrativo com autenticação, gestão de produtos e consulta de encomendas.
+- `config.js` — configuração pública Supabase; nunca incluir segredos.
+- `supabase/schema.sql` — tabelas, políticas RLS, perfis e armazenamento privado.
+- `supabase/functions/create-checkout/index.ts` — cria sessões de pagamento e calcula preços no servidor.
+- `supabase/functions/capture-paypal/index.ts` — captura aprovações PayPal.
+- `supabase/functions/payment-webhook/index.ts` — valida webhooks Stripe/PayPal e atualiza encomendas.
+- `supabase/config.toml` — configuração das Edge Functions.
+- `DEPLOYMENT.md` — instruções completas de configuração.
 
-## Publicar
-Consulta [DEPLOYMENT.md](./DEPLOYMENT.md) para configurar GitHub Pages e Supabase.
+## Estado
+Os adaptadores Stripe e PayPal e os respetivos webhooks estão no código, mas as funções ainda precisam de ser implantadas no teu projeto Supabase e configuradas com credenciais privadas. A ativação também depende de elegibilidade comercial no país de registo. Consulta `DEPLOYMENT.md`.
 
-## Estado dos pagamentos
-O checkout atual da loja continua demonstrativo. A base de dados e a estrutura segura para o backend estão preparadas, mas pagamentos reais, confirmação por webhook e entrega automática só podem ser ativados depois de escolher e configurar um provedor. Não coloques chaves secretas no frontend.
+A entrega automática dos ficheiros por email ainda não está ativada; exige um serviço de email transacional e links de download assinados.
