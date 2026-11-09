@@ -1,52 +1,21 @@
-// Supabase Edge Function: create-checkout
-// Esta função NÃO cobra pagamentos enquanto o provedor não estiver escolhido/configurado.
-// Deploy: supabase functions deploy create-checkout
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const cors = {
-  "Access-Control-Allow-Origin": Deno.env.get("APP_ORIGIN") ?? "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-const response = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
-
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  if (req.method !== "POST") return response({ error: "Método não permitido." }, 405);
-
-  const provider = Deno.env.get("PAYMENT_PROVIDER");
-  if (!provider) return response({
-    error: "Pagamentos ainda não configurados.",
-    code: "PAYMENT_PROVIDER_NOT_CONFIGURED",
-    next_step: "Escolher Stripe, PayPal ou outro provedor e configurar as credenciais no Supabase Secrets."
-  }, 503);
-
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return response({ error: "Autenticação obrigatória." }, 401);
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } }
-  );
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return response({ error: "Sessão inválida." }, 401);
-
-  // Não aceitar preços enviados pelo navegador. O backend deve carregar os produtos
-  // pelo ID, confirmar que estão ativos e calcular o total a partir da base de dados.
-  let body: { items?: Array<{ product_id: string; quantity: number }> };
-  try { body = await req.json(); } catch { return response({ error: "JSON inválido." }, 400); }
-  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 30) {
-    return response({ error: "Lista de produtos inválida." }, 400);
-  }
-  for (const item of body.items) {
-    if (!item || typeof item.product_id !== "string" || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 20) {
-      return response({ error: "Item ou quantidade inválida." }, 400);
-    }
-  }
-
-  // A criação de sessão depende do provedor escolhido. Não criar encomenda como paga
-  // nem devolver URL fictício. A implementação específica será adicionada após a escolha.
-  return response({ error: "Adaptador do provedor ainda não implementado.", provider, code: "PROVIDER_ADAPTER_REQUIRED" }, 501);
-});
+const env=(k:string)=>Deno.env.get(k)??"";
+const origin=env("APP_ORIGIN");
+const cors={"Access-Control-Allow-Origin":origin||"*","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type","Access-Control-Allow-Methods":"POST, OPTIONS"};
+const out=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{...cors,"Content-Type":"application/json"}});
+async function paypalAuth(){const id=env("PAYPAL_CLIENT_ID"),secret=env("PAYPAL_CLIENT_SECRET");if(!id||!secret)throw Error("Credenciais PayPal em falta.");const base=env("PAYPAL_ENV")==="live"?"https://api-m.paypal.com":"https://api-m.sandbox.paypal.com";const r=await fetch(base+"/v1/oauth2/token",{method:"POST",headers:{Authorization:"Basic "+btoa(id+":"+secret),"Content-Type":"application/x-www-form-urlencoded"},body:"grant_type=client_credentials"});const j=await r.json();if(!r.ok)throw Error("Autenticação PayPal falhou.");return {base,token:j.access_token};}
+Deno.serve(async req=>{if(req.method==="OPTIONS")return new Response("ok",{headers:cors});if(req.method!=="POST")return out({error:"Método não permitido."},405);
+try{if(!origin)return out({error:"APP_ORIGIN não configurado."},503);const b=await req.json();const provider=String(b.provider||"").toLowerCase();if(!["stripe","paypal"].includes(provider))return out({error:"Método inválido."},400);
+const name=String(b.customer_name||"").trim().slice(0,120),email=String(b.customer_email||"").trim().toLowerCase();if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return out({error:"Nome ou email inválido."},400);
+if(!Array.isArray(b.items)||!b.items.length||b.items.length>30)return out({error:"Carrinho inválido."},400);const qty=new Map<string,number>();for(const x of b.items){if(typeof x.product_id!=="string"||!Number.isInteger(x.quantity)||x.quantity<1||x.quantity>20)return out({error:"Item inválido."},400);qty.set(x.product_id,(qty.get(x.product_id)||0)+x.quantity);}if([...qty.values()].some(x=>x>20))return out({error:"Quantidade excessiva."},400);
+if(provider==="stripe"&&env("STRIPE_MERCHANT_COUNTRY_ELIGIBLE")!=="true")return out({error:"Stripe bloqueado até confirmares que a entidade comercial está num país elegível.",code:"MERCHANT_COUNTRY_NOT_ELIGIBLE"},403);
+if(provider==="paypal"&&env("PAYPAL_MERCHANT_COUNTRY_ELIGIBLE")!=="true")return out({error:"PayPal bloqueado até confirmares que a conta Business pode receber pagamentos no país de registo.",code:"MERCHANT_COUNTRY_NOT_ELIGIBLE"},403);
+const sb=createClient(env("SUPABASE_URL"),env("SUPABASE_SERVICE_ROLE_KEY"));const ids=[...qty.keys()];const {data:ps,error:pe}=await sb.from("products").select("id,name,price_usd,is_active").in("id",ids);if(pe||!ps||ps.length!==ids.length||ps.some(p=>!p.is_active))return out({error:"Produto indisponível."},400);
+const lines=ps.map(p=>({product_id:p.id,product_name:p.name,unit_price_usd:Number(p.price_usd),quantity:qty.get(p.id)!}));const total=lines.reduce((s,x)=>s+x.unit_price_usd*x.quantity,0);if(!Number.isFinite(total)||total<=0)return out({error:"Total inválido."},400);
+const {data:o,error:oe}=await sb.from("orders").insert({customer_name:name,customer_email:email,currency:"USD",subtotal_usd:total,status:"pending",payment_provider:provider}).select("id").single();if(oe||!o)return out({error:"Não foi possível criar a encomenda."},500);
+const {error:ie}=await sb.from("order_items").insert(lines.map(x=>({...x,order_id:o.id})));if(ie){await sb.from("orders").delete().eq("id",o.id);return out({error:"Erro ao guardar itens."},500);}
+let url="",ref="";
+if(provider==="stripe"){const key=env("STRIPE_SECRET_KEY");if(!key)throw Error("STRIPE_SECRET_KEY em falta.");const f=new URLSearchParams({mode:"payment",success_url:origin+"/?payment=stripe&session_id={CHECKOUT_SESSION_ID}",cancel_url:origin+"/?payment=cancelled",customer_email:email,client_reference_id:o.id,"metadata[order_id]":o.id});lines.forEach((x,i)=>{f.set(`line_items[${i}][price_data][currency]`,"usd");f.set(`line_items[${i}][price_data][unit_amount]`,String(Math.round(x.unit_price_usd*100)));f.set(`line_items[${i}][price_data][product_data][name]`,x.product_name);f.set(`line_items[${i}][quantity]`,String(x.quantity));});const r=await fetch("https://api.stripe.com/v1/checkout/sessions",{method:"POST",headers:{Authorization:"Bearer "+key,"Content-Type":"application/x-www-form-urlencoded"},body:f});const j=await r.json();if(!r.ok)throw Error(j.error?.message||"Erro Stripe.");url=j.url;ref=j.id;
+}else{const {base,token}=await paypalAuth();const r=await fetch(base+"/v2/checkout/orders",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({intent:"CAPTURE",purchase_units:[{reference_id:o.id,custom_id:o.id,description:"Loja Digital Premium",amount:{currency_code:"USD",value:total.toFixed(2)},items:lines.map(x=>({name:x.product_name.slice(0,127),quantity:String(x.quantity),unit_amount:{currency_code:"USD",value:x.unit_price_usd.toFixed(2)}}))}],application_context:{brand_name:"Loja Digital Premium",user_action:"PAY_NOW",return_url:origin+"/?payment=paypal&order_id="+o.id,cancel_url:origin+"/?payment=cancelled"}})});const j=await r.json();if(!r.ok)throw Error(j.message||"Erro PayPal.");url=j.links?.find((x:any)=>x.rel==="approve")?.href;ref=j.id;}
+if(!url||!ref)throw Error("O provedor não devolveu URL de pagamento.");await sb.from("orders").update({provider_reference:ref}).eq("id",o.id);return out({checkout_url:url,order_id:o.id,provider});
+}catch(e){console.error(e);return out({error:e instanceof Error?e.message:"Erro interno."},500);}});
