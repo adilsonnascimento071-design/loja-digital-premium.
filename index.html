@@ -17,6 +17,8 @@ footer{padding:30px 0;border-top:1px solid var(--line);color:var(--muted);font-s
 @media(max-width:800px){.hero-grid{grid-template-columns:1fr}.hero-art{min-height:240px}.grid{grid-template-columns:repeat(2,1fr)}.navlinks{display:none}.trustgrid{grid-template-columns:1fr}.hero{padding:55px 0}}
 @media(max-width:540px){.wrap{width:min(100% - 28px,1160px)}.grid{grid-template-columns:1fr}.section-head{align-items:start;flex-direction:column}.hero h1{letter-spacing:-1.7px}.cover{height:175px}.formgrid{grid-template-columns:1fr}.field.fullfield{grid-column:auto}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
 </head>
 <body>
 <header><div class="wrap nav"><a class="brand" href="#">forma<span>.</span>digital</a><nav class="navlinks"><a href="#catalogo">Catálogo</a><a href="#vantagens">Como funciona</a></nav><button class="cartbtn" id="openCart">Carrinho <span class="count" id="cartCount">0</span></button></div></header>
@@ -29,7 +31,7 @@ footer{padding:30px 0;border-top:1px solid var(--line);color:var(--muted);font-s
 <div class="overlay" id="cartOverlay"><aside class="drawer"><div class="drawerhead"><h2>O teu carrinho</h2><button class="close" id="closeCart" aria-label="Fechar">×</button></div><div id="cartItems"></div><div id="cartFooter"></div></aside></div>
 <div class="modalwrap" id="checkoutWrap"><div class="modal"><div class="drawerhead"><div><h2>Finalizar pedido</h2><p style="margin:4px 0">Preenche os teus dados para registar a encomenda.</p></div><button class="close" id="closeCheckout">×</button></div><div id="checkoutContent"><form id="checkoutForm"><div class="formgrid"><div class="field"><label for="name">Nome completo</label><input id="name" name="name" required autocomplete="name"></div><div class="field"><label for="email">Email</label><input id="email" name="email" type="email" required autocomplete="email"></div><div class="field"><label for="country">País</label><input id="country" name="country" required autocomplete="country-name"></div><div class="field"><label for="payment">Método de pagamento pretendido</label><select id="payment" name="payment"><option>Stripe (a configurar)</option><option>PayPal (a configurar)</option><option>Transferência / contacto</option></select></div></div><div class="notice">Demonstração: este formulário regista o pedido apenas neste navegador. Ainda não processa pagamentos nem envia ficheiros automaticamente.</div><div class="total"><span>Total</span><span id="checkoutTotal">$0.00</span></div><button class="btn primary full" type="submit">Confirmar pedido</button></form></div></div></div>
 <script>
-const products=[
+let products=[
 {id:1,name:"Kit de Produtividade Pessoal",category:"Templates",price:12,desc:"Organiza tarefas, prioridades e objetivos com modelos simples e reutilizáveis.",tag:"MAIS VENDIDO",colors:["#30265f","#8067e8"]},
 {id:2,name:"Guia de Marketing Digital",category:"Ebooks",price:19,desc:"Um guia prático para estruturar a presença digital e comunicar melhor.",tag:"GUIA PRÁTICO",colors:["#173d53","#3b9b9a"]},
 {id:3,name:"Pack de Templates para Redes Sociais",category:"Design",price:15,desc:"Layouts editáveis para criar publicações consistentes e profissionais.",tag:"PACK CRIATIVO",colors:["#8d3f65","#e98b9b"]},
@@ -39,7 +41,9 @@ const products=[
 ];
 const money=n=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(n);
 let cart=JSON.parse(localStorage.getItem("fd_cart")||"[]");let active="Todos";
-const categories=["Todos",...new Set(products.map(p=>p.category))];
+let categories=["Todos",...new Set(products.map(p=>p.category))];
+const cfg=window.STORE_CONFIG||{};
+const db=(window.supabase&&cfg.SUPABASE_URL&&!cfg.SUPABASE_URL.includes("YOUR_PROJECT")&&cfg.SUPABASE_ANON_KEY&&!cfg.SUPABASE_ANON_KEY.includes("YOUR_"))?window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY):null;
 const $=id=>document.getElementById(id);
 function save(){localStorage.setItem("fd_cart",JSON.stringify(cart));renderCart();$("cartCount").textContent=cart.reduce((s,x)=>s+x.qty,0)}
 function renderFilters(){$("filters").innerHTML=categories.map(c=>'<button class="filter '+(active===c?"active":"")+'" data-cat="'+c+'">'+c+'</button>').join("");$("filters").querySelectorAll("button").forEach(b=>b.onclick=()=>{active=b.dataset.cat;renderFilters();renderProducts()})}
@@ -49,5 +53,16 @@ function renderCart(){let host=$("cartItems"),footer=$("cartFooter");if(!cart.le
 function change(id,d){let x=cart.find(y=>y.id===id);if(x){x.qty+=d;if(x.qty<1)cart=cart.filter(y=>y.id!==id);save()}}
 function openCheckout(){if(!cart.length)return;$("cartOverlay").classList.remove("show");$("checkoutTotal").textContent=money(cart.reduce((s,x)=>s+products.find(p=>p.id===x.id).price*x.qty,0));$("checkoutWrap").classList.add("show")}
 $("checkoutForm").onsubmit=e=>{e.preventDefault();let data=Object.fromEntries(new FormData(e.target));let items=cart.map(x=>({name:products.find(p=>p.id===x.id).name,quantity:x.qty,unitPrice:products.find(p=>p.id===x.id).price}));let order={id:"FD-"+Date.now().toString().slice(-8),date:new Date().toISOString(),customer:data,items,total:items.reduce((s,x)=>s+x.quantity*x.unitPrice,0),status:"Pedido recebido — pagamento pendente"};let orders=JSON.parse(localStorage.getItem("fd_orders")||"[]");orders.push(order);localStorage.setItem("fd_orders",JSON.stringify(orders));$("checkoutContent").innerHTML='<div class="success"><div class="successicon">✓</div><h2>Pedido registado!</h2><p>Referência: <b>'+order.id+'</b></p><p>O teu pedido foi guardado neste navegador como demonstração. Não foi efetuada nenhuma cobrança.</p><button class="btn primary full" id="finish">Voltar à loja</button></div>';$("finish").onclick=()=>{cart=[];save();$("checkoutWrap").classList.remove("show");$("checkoutContent").innerHTML=$("checkoutForm").outerHTML;location.reload()}}
-$("openCart").onclick=()=>$("cartOverlay").classList.add("show");$("closeCart").onclick=()=>$("cartOverlay").classList.remove("show");$("cartOverlay").onclick=e=>{if(e.target===$("cartOverlay"))$("cartOverlay").classList.remove("show")};$("closeCheckout").onclick=()=>$("checkoutWrap").classList.remove("show");$("checkoutWrap").onclick=e=>{if(e.target===$("checkoutWrap"))$("checkoutWrap").classList.remove("show")};$("search").oninput=renderProducts;$("year").textContent=new Date().getFullYear();renderFilters();renderProducts();save();
+$("openCart").onclick=()=>$("cartOverlay").classList.add("show");$("closeCart").onclick=()=>$("cartOverlay").classList.remove("show");$("cartOverlay").onclick=e=>{if(e.target===$("cartOverlay"))$("cartOverlay").classList.remove("show")};$("closeCheckout").onclick=()=>$("checkoutWrap").classList.remove("show");$("checkoutWrap").onclick=e=>{if(e.target===$("checkoutWrap"))$("checkoutWrap").classList.remove("show")};$("search").oninput=renderProducts;$("year").textContent=new Date().getFullYear();
+async function loadCatalog(){
+ if(db){
+  const {data,error}=await db.from("products").select("id,name,description,category,price_usd").eq("is_active",true).order("created_at",{ascending:false});
+  if(!error&&Array.isArray(data)&&data.length){
+   products=data.map(p=>({id:p.id,name:p.name,category:p.category,price:Number(p.price_usd),desc:p.description,tag:"PRODUTO DIGITAL",colors:["#30265f","#8067e8"]}));
+   categories=["Todos",...new Set(products.map(p=>p.category))];
+  }
+ }
+ renderFilters();renderProducts();save();
+}
+loadCatalog();
 </script></body></html>
